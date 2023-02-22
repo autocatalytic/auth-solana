@@ -1,13 +1,59 @@
-import Link from "next/link"
-import { signIn, signOut, useSession } from "next-auth/react"
-import styles from "./header.module.css"
+import Link from "next/link";
+import { getCsrfToken, signIn, signOut, useSession } from "next-auth/react";
+import styles from "./header.module.css";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { SigninMessage } from "../utils/SigninMessage";
+import bs58 from "bs58";
+import { useEffect } from "react";
 
-// The approach used in this component shows how to build a sign in and sign out
-// component that works on pages which support both client and server side
-// rendering, and avoids any flash incorrect content on initial page load.
+// Export a react component "Header", that renders a header element with a
+// navigation bar (see html/js below). Best example of useWallet and 
+// wallet-adapter-react-ui that I've seen in demos that I've done so far.
 export default function Header() {
-  const { data: session, status } = useSession()
-  const loading = status === "loading"
+  const { data: session, status } = useSession();
+  const loading = status === "loading";
+
+  const wallet = useWallet();
+  const walletModal = useWalletModal();
+
+  const handleSignIn = async () => {
+    try {
+      if (!wallet.connected) {
+        walletModal.setVisible(true);
+      }
+
+      // Impressed how clean this structure is, one if to confirm security
+      // Simply: if any of these is false, we are not safe.
+      const csrf = await getCsrfToken();
+      if (!wallet.publicKey || !csrf || !wallet.signMessage) return;
+
+      const message = new SigninMessage({
+        domain: window.location.host,
+        publicKey: wallet.publicKey?.toBase58(),
+        statement: `Sign this message to sign in to the app.`,
+        nonce: csrf,
+      });
+
+      const data = new TextEncoder().encode(message.prepare());
+      const signature = await wallet.signMessage(data);
+      const serializedSignature = bs58.encode(signature);
+
+      signIn("credentials", {
+        message: JSON.stringify(message),
+        redirect: false,
+        signature: serializedSignature,
+      });
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  useEffect(() => {
+    if (wallet.connected && status === "unauthenticated") {
+      handleSignIn();
+    }
+  }, [wallet.connected]);
 
   return (
     <header>
@@ -25,16 +71,9 @@ export default function Header() {
               <span className={styles.notSignedInText}>
                 You are not signed in
               </span>
-              <a
-                href={`/api/auth/signin`}
-                className={styles.buttonPrimary}
-                onClick={(e) => {
-                  e.preventDefault()
-                  signIn()
-                }}
-              >
+              <span className={styles.buttonPrimary} onClick={handleSignIn}>
                 Sign in
-              </a>
+              </span>
             </>
           )}
           {session?.user && (
@@ -54,8 +93,8 @@ export default function Header() {
                 href={`/api/auth/signout`}
                 className={styles.button}
                 onClick={(e) => {
-                  e.preventDefault()
-                  signOut()
+                  e.preventDefault();
+                  signOut();
                 }}
               >
                 Sign out
@@ -67,28 +106,22 @@ export default function Header() {
       <nav>
         <ul className={styles.navItems}>
           <li className={styles.navItem}>
-            <Link href="/">Home</Link>
+            <Link legacyBehavior href="/">
+              <a>Home</a>
+            </Link>
           </li>
           <li className={styles.navItem}>
-            <Link href="/client">Client</Link>
+            <Link legacyBehavior href="/api/examples/protected">
+              <a>Protected API Route</a>
+            </Link>
           </li>
           <li className={styles.navItem}>
-            <Link href="/server">Server</Link>
-          </li>
-          <li className={styles.navItem}>
-            <Link href="/protected">Protected</Link>
-          </li>
-          <li className={styles.navItem}>
-            <Link href="/api-example">API</Link>
-          </li>
-          <li className={styles.navItem}>
-            <Link href="/admin">Admin</Link>
-          </li>
-          <li className={styles.navItem}>
-            <Link href="/me">Me</Link>
+            <Link legacyBehavior href="/me">
+              <a>Me</a>
+            </Link>
           </li>
         </ul>
       </nav>
     </header>
-  )
+  );
 }
